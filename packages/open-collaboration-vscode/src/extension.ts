@@ -14,6 +14,7 @@ import { closeSharedEditors, removeWorkspaceFolders } from './utils/workspace.js
 import { createContainer } from './inversify.js';
 import { Commands } from './commands.js';
 import { Fetch } from './collaboration-connection-provider.js';
+import { AutomationService } from './automation-service.js';
 import fetch from 'node-fetch';
 
 initializeProtocol({
@@ -26,6 +27,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const commands = container.get(Commands);
     commands.initialize();
     const roomService = container.get(CollaborationRoomService);
+    
+    // Initialize automation service for 3rd party integration
+    const automationService = container.get(AutomationService);
+    context.subscriptions.push(automationService);
 
     const connection = await roomService.tryConnect();
     if (connection) {

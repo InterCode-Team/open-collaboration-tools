@@ -80,6 +80,11 @@
           "type": "string",
           "default": "https://www.open-collab.tools/playground/?room=${roomId}",
           "description": "%oct.webClientUrl%"
+        },
+        "oct.automation.port": {
+          "type": "number",
+          "default": 8443,
+          "description": "Port number for the automation service to listen on (default: 8443)"
         }
       }
     },
