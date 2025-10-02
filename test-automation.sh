@@ -20,10 +20,11 @@ echo ""
 # Function to test create session
 test_create() {
     echo -e "${BLUE}[TEST 1]${NC} Creating new session..."
+    echo "Using default credentials: username=Test1, email=Test1@gmail.com"
     
     RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}" \
         -H "Content-Type: application/json" \
-        -d '{"action": "create"}')
+        -d '{"action": "create", "username": "Test1", "email": "Test1@gmail.com"}')
     
     HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
     BODY=$(echo "$RESPONSE" | sed '$d')

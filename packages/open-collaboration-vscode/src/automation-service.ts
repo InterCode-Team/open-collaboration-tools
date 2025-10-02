@@ -3,12 +3,13 @@ import * as http from 'http';
 import { injectable, inject, postConstruct } from 'inversify';
 import { CollaborationRoomService } from './collaboration-room-service.js';
 import { ExtensionContext } from './inversify.js';
-import { Settings } from './utils/settings.js';
 
 export interface AutomationRequest {
     action: 'create' | 'join';
     roomId?: string; // Required for 'join' action
     serverUrl?: string; // Optional server URL override
+    username?: string; // Username for authentication (default: "Test1")
+    email?: string; // Email for authentication (default: "Test1@gmail.com")
 }
 
 export interface AutomationResponse {
@@ -144,12 +145,12 @@ export class AutomationService implements vscode.Disposable {
         try {
             switch (request.action) {
                 case 'create':
-                    return await this.handleCreateRoom(request.serverUrl);
+                    return await this.handleCreateRoom(request.serverUrl, request.username, request.email);
                 case 'join':
                     if (!request.roomId) {
                         return { success: false, error: 'roomId is required for join action' };
                     }
-                    return await this.handleJoinRoom(request.roomId, request.serverUrl);
+                    return await this.handleJoinRoom(request.roomId, request.serverUrl, request.username, request.email);
                 default:
                     return { success: false, error: `Unknown action: ${request.action}` };
             }
@@ -161,22 +162,15 @@ export class AutomationService implements vscode.Disposable {
         }
     }
 
-    private async handleCreateRoom(serverUrl?: string): Promise<AutomationResponse> {
-        // Temporarily override server URL if provided
-        const originalUrl = serverUrl ? Settings.getServerUrl() : undefined;
-        if (serverUrl) {
-            await Settings.setServerUrl(serverUrl);
-        }
+    private async handleCreateRoom(serverUrl?: string, username?: string, email?: string): Promise<AutomationResponse> {
+        // Use default values if not provided
+        const user = username || 'Test1';
+        const userEmail = email || 'Test1@gmail.com';
 
         return new Promise((resolve) => {
             // Listen for room creation
             const disposable = this.roomService.onDidJoinRoom(async instance => {
                 disposable.dispose();
-                
-                // Restore original URL if it was overridden
-                if (serverUrl && originalUrl) {
-                    await Settings.setServerUrl(originalUrl);
-                }
 
                 resolve({
                     success: true,
@@ -185,14 +179,9 @@ export class AutomationService implements vscode.Disposable {
                 });
             });
 
-            // Trigger room creation
-            this.roomService.createRoom().catch(async error => {
+            // Trigger room creation with auto auth
+            this.roomService.createRoomWithAutoAuth(serverUrl, user, userEmail).catch(async error => {
                 disposable.dispose();
-                
-                // Restore original URL on error
-                if (serverUrl && originalUrl) {
-                    await Settings.setServerUrl(originalUrl);
-                }
 
                 resolve({
                     success: false,
@@ -202,22 +191,15 @@ export class AutomationService implements vscode.Disposable {
         });
     }
 
-    private async handleJoinRoom(roomId: string, serverUrl?: string): Promise<AutomationResponse> {
-        // Temporarily override server URL if provided
-        const originalUrl = serverUrl ? Settings.getServerUrl() : undefined;
-        if (serverUrl) {
-            await Settings.setServerUrl(serverUrl);
-        }
+    private async handleJoinRoom(roomId: string, serverUrl?: string, username?: string, email?: string): Promise<AutomationResponse> {
+        // Use default values if not provided
+        const user = username || 'Test1';
+        const userEmail = email || 'Test1@gmail.com';
 
         return new Promise((resolve) => {
             // Listen for room join
             const disposable = this.roomService.onDidJoinRoom(async instance => {
                 disposable.dispose();
-                
-                // Restore original URL if it was overridden
-                if (serverUrl && originalUrl) {
-                    await Settings.setServerUrl(originalUrl);
-                }
 
                 resolve({
                     success: true,
@@ -226,14 +208,9 @@ export class AutomationService implements vscode.Disposable {
                 });
             });
 
-            // Trigger room join
-            this.roomService.joinRoom(roomId).catch(async error => {
+            // Trigger room join with auto auth
+            this.roomService.joinRoomWithAutoAuth(roomId, serverUrl, user, userEmail).catch(async error => {
                 disposable.dispose();
-                
-                // Restore original URL on error
-                if (serverUrl && originalUrl) {
-                    await Settings.setServerUrl(originalUrl);
-                }
 
                 resolve({
                     success: false,

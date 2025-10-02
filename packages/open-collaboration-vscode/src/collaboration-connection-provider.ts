@@ -65,6 +65,58 @@ export class CollaborationConnectionProvider {
         });
     }
 
+    /**
+     * Create a connection with automatic authentication (for automation API)
+     * Bypasses the authentication popup and uses unverified login
+     */
+    async createConnectionWithAutoAuth(serverUrl: string, username: string, email: string): Promise<ConnectionProvider> {
+        const userToken = await this.secretStorage.retrieveUserToken(serverUrl);
+        return new ConnectionProvider({
+            url: serverUrl,
+            client: `OCT_CODE_${vscode.env.appName.replace(/[\s\-_]+/g, '_')}@${packageVersion}`,
+            authenticationHandler: async (token, authMetadata) => {
+                // Find the first form auth provider (unverified login)
+                const formProvider = authMetadata.providers.find(p => p.type === 'form') as FormAuthProvider | undefined;
+                
+                if (formProvider) {
+                    // Automatically submit form with provided credentials
+                    const values: Record<string, string> = {
+                        token
+                    };
+                    
+                    // Map username and email to the form fields
+                    for (const field of formProvider.fields) {
+                        if (field.name === 'username' || field.name === 'name') {
+                            values[field.name] = username;
+                        } else if (field.name === 'email') {
+                            values[field.name] = email;
+                        }
+                    }
+                    
+                    const endpointUrl = vscode.Uri.parse(serverUrl).with({ path: formProvider.endpoint });
+                    const response = await this.fetch(endpointUrl.toString(), {
+                        method: 'POST',
+                        body: JSON.stringify(values),
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    return response.ok;
+                }
+                
+                // Fallback to opening login page if no form provider
+                if (authMetadata.loginPageUrl) {
+                    return await vscode.env.openExternal(vscode.Uri.parse(authMetadata.loginPageUrl));
+                }
+                
+                return false;
+            },
+            transports: [SocketIoTransportProvider],
+            userToken,
+            fetch: this.fetch
+        });
+    }
+
     private enhanceQuickPickGroups(items: AuthQuickPickItem[]): AuthQuickPickItem[] {
         const groups = new Map<string, AuthQuickPickItem[]>();
         for (const item of items) {

