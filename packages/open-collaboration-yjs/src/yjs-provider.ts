@@ -59,17 +59,25 @@ export class OpenCollaborationYjsProvider extends ObservableV2<string> {
     }
 
     private ocpDataUpdateHandler(origin: string, update: types.Binary): void {
-        const decoder = this.decode(update);
-        const encoder = encoding.createEncoder();
-        const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, this.doc, origin);
-        if (syncMessageType === syncProtocol.messageYjsSyncStep1) {
-            this.connection.sync.dataUpdate(origin, this.encode(encoder));
+        try {
+            const decoder = this.decode(update);
+            const encoder = encoding.createEncoder();
+            const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, this.doc, origin);
+            if (syncMessageType === syncProtocol.messageYjsSyncStep1) {
+                this.connection.sync.dataUpdate(origin, this.encode(encoder));
+            }
+        } catch (error) {
+            console.error('[OCT] Error handling data update:', error);
         }
     }
 
     private ocpAwarenessUpdateHandler(origin: string, update: types.Binary): void {
-        const decoder = this.decode(update);
-        awarenessProtocol.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(decoder), origin);
+        try {
+            const decoder = this.decode(update);
+            awarenessProtocol.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(decoder), origin);
+        } catch (error) {
+            console.error('[OCT] Error handling awareness update:', error);
+        }
     }
 
     private ocpAwarenessQueryHandler(origin: string): void {

@@ -126,11 +126,27 @@ export class DocumentSync implements IDocumentSync {
         if (!this.onDocumentContentChangeCallback || !this.activeDocumentPath || !this.activeDocument) {
             return;
         }
-        if (!this.documentInitialized && event.delta.length === 1 && typeof event.delta[0].insert === 'string') {
-            // Skip the initial sync event (single insert at offset 0 with entire content)
-            this.documentInitialized = true;
-            return;
+        
+        // Improved initial sync detection: check if this is the first event AND
+        // it's a single insert starting at offset 0 (more robust than just checking delta length)
+        if (!this.documentInitialized) {
+            const isSingleInsert = event.delta.length === 1 && 
+                                   typeof event.delta[0].insert === 'string' &&
+                                   !('retain' in event.delta[0]);
+            
+            if (isSingleInsert) {
+                // This looks like an initial sync
+                this.documentInitialized = true;
+                console.debug('[OCT] Document initialized, skipping initial sync event');
+                return;
+            } else {
+                // Not a typical initial sync pattern, but mark as initialized anyway
+                // to avoid getting stuck
+                this.documentInitialized = true;
+                console.warn('[OCT] Unexpected initial sync pattern, processing anyway');
+            }
         }
+        
         if (event.transaction.local) {
             return;
         }
@@ -163,7 +179,9 @@ export class DocumentSync implements IDocumentSync {
             }
         }
 
-        this.onDocumentContentChangeCallback(this.activeDocumentPath, content, documentChanges);
+        if (documentChanges.length > 0) {
+            this.onDocumentContentChangeCallback(this.activeDocumentPath, content, documentChanges);
+        }
     };
 
     private offsetToPosition(text: string, offset: number): Position {

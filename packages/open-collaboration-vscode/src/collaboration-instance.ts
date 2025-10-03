@@ -735,6 +735,7 @@ export class CollaborationInstance implements vscode.Disposable {
         if (path) {
             if (this.resyncing.has(path)) {
                 // Don't update the Yjs document if we are resyncing
+                console.debug(`[OCT] Skipping update for ${path} - currently resyncing`);
                 return;
             }
             const normalizedDocument = this.getNormalizedDocument(event.document, path);
@@ -762,16 +763,37 @@ export class CollaborationInstance implements vscode.Disposable {
         if (uri) {
             value = debounce(async () => {
                 const document = this.findDocument(uri);
-                if (document) {
-                    const yjsText = this.yjs.getText(path);
-                    const newContent = this.adjustEol(yjsText.toString(), document.eol);
-                    if (newContent !== document.getText()) {
-                        this.resyncing.add(path);
-                        await this.applyEdit([], () => {
+                if (!document) {
+                    console.warn(`[OCT] Document not found for throttled sync: ${path}`);
+                    return;
+                }
+                
+                const yjsText = this.yjs.getText(path);
+                const newContent = this.adjustEol(yjsText.toString(), document.eol);
+                
+                if (newContent !== document.getText()) {
+                    console.debug(`[OCT] Syncing document ${path}, content differs`);
+                    
+                    // Prevent concurrent resyncs for the same document
+                    if (this.resyncing.has(path)) {
+                        console.warn(`[OCT] Already resyncing ${path}, skipping duplicate sync`);
+                        return;
+                    }
+                    
+                    this.resyncing.add(path);
+                    try {
+                        const success = await this.applyEdit([], () => {
                             // Refetch the document in case any modifications have been made
                             const doc = this.findDocument(uri);
                             return doc ? this.createFullDocumentEdit(doc, newContent) : undefined;
                         });
+                        
+                        if (!success) {
+                            console.error(`[OCT] Failed to sync document ${path}`);
+                        }
+                    } catch (error) {
+                        console.error(`[OCT] Error during document sync for ${path}:`, error);
+                    } finally {
                         this.resyncing.delete(path);
                     }
                 }
@@ -782,32 +804,54 @@ export class CollaborationInstance implements vscode.Disposable {
             });
             this.throttles.set(path, value);
         } else {
-            console.warn('Could not determine URI for path', path);
+            console.warn('[OCT] Could not determine URI for path', path);
             value = () => { };
         }
         return value;
     }
 
     /**
-     * Applies the given changes to the document. If the changes are not applied successfully, it will retry up to 20 times.
+     * Applies the given changes to the document. If the changes are not applied successfully, it will retry with exponential backoff.
      * Note that the actual `WorkspaceEdit` needs to be recalculated on every retry attempt, as the document may have changed in the meantime.
      */
     private async applyEdit(changes: YTextChange[], edit: (changes: YTextChange[]) => vscode.WorkspaceEdit | undefined): Promise<boolean> {
-        let success = false;
-        let attempts = 0;
-        const maxAttempts = 20;
-        while (!success && attempts++ < maxAttempts) {
+        const delays = [0, 10, 20, 50, 100, 200]; // Exponential backoff in milliseconds
+        const maxAttempts = delays.length;
+        
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
+                // Wait before retry (except for first attempt)
+                if (delays[attempt] > 0) {
+                    await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+                }
+                
                 const workspaceEdit = edit(changes);
                 if (!workspaceEdit) {
                     return true;
                 }
-                success = await vscode.workspace.applyEdit(workspaceEdit);
-            } catch {
-                return false;
+                
+                const success = await vscode.workspace.applyEdit(workspaceEdit);
+                if (success) {
+                    if (attempt > 0) {
+                        console.debug(`[OCT] Edit succeeded after ${attempt + 1} attempt(s)`);
+                    }
+                    return true;
+                }
+                
+                console.warn(`[OCT] Edit attempt ${attempt + 1}/${maxAttempts} failed, retrying...`);
+            } catch (error) {
+                console.error(`[OCT] Edit attempt ${attempt + 1}/${maxAttempts} threw error:`, error);
+                if (attempt === maxAttempts - 1) {
+                    return false;
+                }
             }
         }
-        return success;
+        
+        console.error('[OCT] Edit failed after all retry attempts', { 
+            changeCount: changes.length,
+            changes: changes.map(c => ({ start: c.start, end: c.end, textLength: c.text.length }))
+        });
+        return false;
     }
 
     private findDocument(uri: vscode.Uri): vscode.TextDocument | undefined {

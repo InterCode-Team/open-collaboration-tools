@@ -77,6 +77,8 @@ export type YjsTextDocumentChangedCallback = (changes: YTextChange[]) => Promise
 interface ChangeSet {
     before: string;
     after: string;
+    fingerprint: string;
+    timestamp: number;
 }
 
 export class YjsNormalizedTextDocument implements types.Disposable {
@@ -86,6 +88,7 @@ export class YjsNormalizedTextDocument implements types.Disposable {
     private _textLength: number;
     private _normalizedLength: number;
     private _changeSets: ChangeSet[] = [];
+    private _pendingChangeFingerprints = new Set<string>();
     private _offsets: NormalizedLineOffset[] | undefined;
     private observer: Parameters<Y.Text['observe']>[0];
 
@@ -116,15 +119,28 @@ export class YjsNormalizedTextDocument implements types.Disposable {
         // Update the internal text string, but don't broadcast the changes
         this.doUpdate({ changes: changeSet }, false);
         const after = this._text;
+        const fingerprint = this.getChangeFingerprint(changeSet);
         const changeSetItem: ChangeSet = {
             before,
             after,
+            fingerprint,
+            timestamp: Date.now(),
         };
         this._changeSets.push(changeSetItem);
-        await callback(changeSet);
-        const index = this._changeSets.indexOf(changeSetItem);
-        if (index !== -1) {
-            this._changeSets.splice(index, 1);
+        
+        try {
+            await callback(changeSet);
+        } catch (error) {
+            console.error('[OCT] YjsNormalizedTextDocument callback error:', error);
+        } finally {
+            // Clean up this changeset
+            const index = this._changeSets.indexOf(changeSetItem);
+            if (index !== -1) {
+                this._changeSets.splice(index, 1);
+            }
+            // Also clean up old changesets (older than 5 seconds)
+            const now = Date.now();
+            this._changeSets = this._changeSets.filter(cs => now - cs.timestamp < 5000);
         }
     }
 
@@ -201,6 +217,8 @@ export class YjsNormalizedTextDocument implements types.Disposable {
             } else {
                 if (this.shouldApply(event.changes)) {
                     this.doUpdate(event, true);
+                } else {
+                    console.debug('[OCT] Skipping duplicate change based on fingerprint match');
                 }
             }
         };
@@ -212,9 +230,52 @@ export class YjsNormalizedTextDocument implements types.Disposable {
         }
     }
 
+    /**
+     * Generates a fingerprint for a set of changes based on their positions and content hashes.
+     * This is more efficient than string comparison and less prone to false positives.
+     */
+    private getChangeFingerprint(changes: YTextChange[]): string {
+        if (changes.length === 0) {
+            return '';
+        }
+        const sorted = YTextChange.sort(changes);
+        return sorted.map(c => {
+            // Include position, length, and a hash of the content
+            const contentHash = this.simpleHash(c.text);
+            return `${c.start}:${c.end}:${c.text.length}:${contentHash}`;
+        }).join('|');
+    }
+
+    /**
+     * Simple string hash function for fingerprinting
+     */
+    private simpleHash(str: string): number {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        return hash;
+    }
+
     private shouldApply(changes: YTextChange[]): boolean {
         changes = YTextChange.sort(changes);
+        const fingerprint = this.getChangeFingerprint(changes);
+        
+        // Check if this exact change fingerprint is currently pending
+        if (this._pendingChangeFingerprints.has(fingerprint)) {
+            return false;
+        }
+        
+        // Check against active changesets
         for (const changeSet of this._changeSets) {
+            if (changeSet.fingerprint === fingerprint) {
+                return false;
+            }
+            
+            // Fallback to the original string comparison for backwards compatibility
+            // This ensures we don't regress on existing behavior
             let fullText = changeSet.before;
             let delta = 0;
             for (const change of changes) {
@@ -226,6 +287,11 @@ export class YjsNormalizedTextDocument implements types.Disposable {
                 return false;
             }
         }
+        
+        // Mark this fingerprint as pending to prevent near-simultaneous duplicates
+        this._pendingChangeFingerprints.add(fingerprint);
+        setTimeout(() => this._pendingChangeFingerprints.delete(fingerprint), 5000);
+        
         return true;
     }
 
