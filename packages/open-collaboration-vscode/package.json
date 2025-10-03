@@ -73,7 +73,7 @@
         },
         "oct.alwaysAskToOverrideServerUrl": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "%oct.alwaysAskToOverrideServerUrl%"
         },
         "oct.webClientUrl": {
@@ -83,8 +83,8 @@
         },
         "oct.automation.port": {
           "type": "number",
-          "default": 8443,
-          "description": "Port number for the automation service to listen on (default: 8443)"
+          "default": 9555,
+          "description": "Port number for the automation service to listen on (default: 9555)"
         }
       }
     },
