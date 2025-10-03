@@ -29,12 +29,12 @@ export class AutomationService implements vscode.Disposable {
     private context: vscode.ExtensionContext;
 
     private server?: http.Server;
-    private port: number = 8443; // Default port
+    private port: number = 9555; // Default port
 
     @postConstruct()
     protected init(): void {
         // Read configuration
-        this.port = this.getConfig('port', 8443);
+        this.port = this.getConfig('port', 9555);
 
         // Always start the server
         this.startServer();
@@ -55,7 +55,7 @@ export class AutomationService implements vscode.Disposable {
     }
 
     private handleConfigChange(): void {
-        const newPort = this.getConfig('port', 8443);
+        const newPort = this.getConfig('port', 9555);
 
         if (newPort !== this.port) {
             this.port = newPort;
