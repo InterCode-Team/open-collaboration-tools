@@ -12,7 +12,7 @@ import requests
 from typing import Optional, Dict, Any
 
 # Configuration
-PORT = 8443
+PORT = 9555
 BASE_URL = f"http://127.0.0.1:{PORT}"
 
 # ANSI color codes

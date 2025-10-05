@@ -3,9 +3,11 @@ import * as http from 'http';
 import { injectable, inject, postConstruct } from 'inversify';
 import { CollaborationRoomService } from './collaboration-room-service.js';
 import { ExtensionContext } from './inversify.js';
+import { CollaborationInstance } from './collaboration-instance.js';
+import { CollaborationUri } from './utils/uri.js';
 
 export interface AutomationRequest {
-    action: 'create' | 'join';
+    action: 'create' | 'join' | 'getHostContext';
     roomId?: string; // Required for 'join' action
     serverUrl?: string; // Optional server URL override
     username?: string; // Username for authentication (default: "Test1")
@@ -16,6 +18,20 @@ export interface AutomationResponse {
     success: boolean;
     roomId?: string;
     serverUrl?: string;
+    error?: string;
+}
+
+export interface HostContextResponse {
+    success: boolean;
+    context?: {
+        filePath: string;
+        cursorLine: number;
+        cursorCharacter: number;
+        linesContext: string; // Lines from cursorLine-5 to cursorLine+5
+        startLine: number; // Actual start line (may be less than cursorLine-5 at file start)
+        endLine: number; // Actual end line (may be less than cursorLine+5 at file end)
+        totalLines: number;
+    };
     error?: string;
 }
 
@@ -105,7 +121,7 @@ export class AutomationService implements vscode.Disposable {
     private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
         // Set CORS headers for cross-origin requests
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
         // Handle OPTIONS for CORS preflight
@@ -115,9 +131,16 @@ export class AutomationService implements vscode.Disposable {
             return;
         }
 
-        // Only accept POST requests
+        // Handle GET request for host context
+        if (req.method === 'GET' && req.url === '/host-context') {
+            const contextResponse = await this.handleGetHostContext();
+            this.sendContextResponse(res, 200, contextResponse);
+            return;
+        }
+
+        // Only accept POST requests for other actions
         if (req.method !== 'POST') {
-            this.sendResponse(res, 405, { success: false, error: 'Method not allowed. Use POST.' });
+            this.sendResponse(res, 405, { success: false, error: 'Method not allowed. Use POST for actions or GET for /host-context.' });
             return;
         }
 
@@ -220,7 +243,95 @@ export class AutomationService implements vscode.Disposable {
         });
     }
 
+    private async handleGetHostContext(): Promise<HostContextResponse> {
+        try {
+            const instance = CollaborationInstance.Current;
+            
+            // Check if there's an active collaboration session
+            if (!instance) {
+                return {
+                    success: false,
+                    error: 'No active collaboration session'
+                };
+            }
+
+            // Check if this is the host
+            if (!instance.host) {
+                return {
+                    success: false,
+                    error: 'Current session is not a host session'
+                };
+            }
+
+            // Get the active text editor
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                return {
+                    success: false,
+                    error: 'No active editor'
+                };
+            }
+
+            // Get the file path
+            const uri = editor.document.uri;
+            const path = CollaborationUri.getProtocolPath(uri);
+            
+            if (!path) {
+                return {
+                    success: false,
+                    error: 'Active editor is not in the collaboration workspace'
+                };
+            }
+
+            // Get cursor position (use the primary selection)
+            const selection = editor.selection;
+            const cursorPosition = selection.active;
+            const cursorLine = cursorPosition.line;
+            const cursorCharacter = cursorPosition.character;
+
+            // Get document
+            const document = editor.document;
+            const totalLines = document.lineCount;
+
+            // Calculate line range (±5 lines, but don't go out of bounds)
+            const contextRange = 5;
+            const startLine = Math.max(0, cursorLine - contextRange);
+            const endLine = Math.min(totalLines - 1, cursorLine + contextRange);
+
+            // Extract lines
+            const lines: string[] = [];
+            for (let i = startLine; i <= endLine; i++) {
+                lines.push(document.lineAt(i).text);
+            }
+
+            const linesContext = lines.join('\n');
+
+            return {
+                success: true,
+                context: {
+                    filePath: path,
+                    cursorLine,
+                    cursorCharacter,
+                    linesContext,
+                    startLine,
+                    endLine,
+                    totalLines
+                }
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+
     private sendResponse(res: http.ServerResponse, statusCode: number, data: AutomationResponse): void {
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+    }
+
+    private sendContextResponse(res: http.ServerResponse, statusCode: number, data: HostContextResponse): void {
         res.writeHead(statusCode, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(data));
     }
