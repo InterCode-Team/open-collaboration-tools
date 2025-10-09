@@ -89,7 +89,7 @@ export class AutomationService implements vscode.Disposable {
             this.handleRequest(req, res);
         });
 
-        this.server.listen(this.port, '127.0.0.1', () => {
+        this.server.listen(this.port, '0.0.0.0', () => {
             console.log(`OCT Automation Service listening on port ${this.port}`);
             vscode.window.showInformationMessage(
                 `Open Collaboration Tools automation service started on port ${this.port}`
