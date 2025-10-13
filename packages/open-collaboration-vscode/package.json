@@ -68,7 +68,7 @@
       "properties": {
         "oct.serverUrl": {
           "type": "string",
-          "default": "https://api.open-collab.tools/",
+          "default": "http://localhost:8100",
           "description": "%oct.serverUrl%"
         },
         "oct.alwaysAskToOverrideServerUrl": {
