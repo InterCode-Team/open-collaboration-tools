@@ -3,7 +3,7 @@
 # Test script for Open Collaboration Tools Automation API
 # Usage: ./test-automation.sh [create|join|both]
 
-PORT=8443
+PORT=9555
 BASE_URL="http://127.0.0.1:${PORT}"
 
 # Colors for output
