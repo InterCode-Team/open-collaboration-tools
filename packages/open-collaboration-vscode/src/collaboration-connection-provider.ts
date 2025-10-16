@@ -66,49 +66,69 @@ export class CollaborationConnectionProvider {
     }
 
     /**
-     * Create a connection with automatic authentication (for automation API)
-     * Bypasses the authentication popup and uses unverified login
+     * Create a connection for silent/automatic room creation
+     * Automatically handles authentication without user prompts
      */
-    async createConnectionWithAutoAuth(serverUrl: string, username: string, email: string): Promise<ConnectionProvider> {
+    async createConnectionSilent(serverUrl: string): Promise<ConnectionProvider> {
         const userToken = await this.secretStorage.retrieveUserToken(serverUrl);
+        const username = process.env.USERNAME || 'Student';
+        const instanceId = process.env.INSTANCE_ID || 'unknown';
+        
+        console.log(`[OCT-Debug] Creating silent connection for ${username} (${instanceId})`);
+        
         return new ConnectionProvider({
             url: serverUrl,
             client: `OCT_CODE_${vscode.env.appName.replace(/[\s\-_]+/g, '_')}@${packageVersion}`,
             authenticationHandler: async (token, authMetadata) => {
-                // Find the first form auth provider (unverified login)
+                console.log(`[OCT-Debug] Auth handler called, providers: ${authMetadata.providers.length}`);
+                
+                // Find form provider (simple login)
                 const formProvider = authMetadata.providers.find(p => p.type === 'form') as FormAuthProvider | undefined;
                 
                 if (formProvider) {
-                    // Automatically submit form with provided credentials
+                    console.log(`[OCT-Debug] Using form provider, fields: ${formProvider.fields.map(f => f.name).join(', ')}`);
+                    
+                    // Automatically fill form with environment-based credentials
                     const values: Record<string, string> = {
                         token
                     };
                     
-                    // Map username and email to the form fields
                     for (const field of formProvider.fields) {
                         if (field.name === 'username' || field.name === 'name') {
                             values[field.name] = username;
                         } else if (field.name === 'email') {
-                            values[field.name] = email;
+                            values[field.name] = `${username}@student.local`;
+                        } else {
+                            // For any other field (required or not), use username as fallback
+                            values[field.name] = username;
                         }
                     }
                     
+                    console.log(`[OCT-Debug] Form values prepared: ${Object.keys(values).join(', ')}`);
+
+                    
                     const endpointUrl = vscode.Uri.parse(serverUrl).with({ path: formProvider.endpoint });
-                    const response = await this.fetch(endpointUrl.toString(), {
-                        method: 'POST',
-                        body: JSON.stringify(values),
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    return response.ok;
+                    console.log(`[OCT-Debug] Submitting auth to ${endpointUrl.toString()}`);
+                    
+                    try {
+                        const response = await this.fetch(endpointUrl.toString(), {
+                            method: 'POST',
+                            body: JSON.stringify(values),
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        console.log(`[OCT-Debug] Auth response: ${response.status} ${response.ok ? 'OK' : 'Failed'}`);
+                        return response.ok;
+                    } catch (error) {
+                        console.error('[OCT-Error] Auth request failed:', error);
+                        return false;
+                    }
                 }
                 
-                // Fallback to opening login page if no form provider
-                if (authMetadata.loginPageUrl) {
-                    return await vscode.env.openExternal(vscode.Uri.parse(authMetadata.loginPageUrl));
-                }
-                
+                // No form provider available, log and fail
+                console.error('[OCT-Error] No form provider available for silent auth');
                 return false;
             },
             transports: [SocketIoTransportProvider],
@@ -116,6 +136,7 @@ export class CollaborationConnectionProvider {
             fetch: this.fetch
         });
     }
+
 
     private enhanceQuickPickGroups(items: AuthQuickPickItem[]): AuthQuickPickItem[] {
         const groups = new Map<string, AuthQuickPickItem[]>();

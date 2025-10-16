@@ -3,7 +3,7 @@ import * as http from 'http';
 import { injectable, inject, postConstruct } from 'inversify';
 import { CollaborationRoomService } from './collaboration-room-service.js';
 import { ExtensionContext } from './inversify.js';
-import { CollaborationInstance } from './collaboration-instance.js';
+// import { CollaborationInstance } from './collaboration-instance.js';
 import { CollaborationUri } from './utils/uri.js';
 
 export interface AutomationRequest {
@@ -124,6 +124,9 @@ export class AutomationService implements vscode.Disposable {
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+        // Debug logging
+        console.log(`[Automation Service] ${req.method} ${req.url}`);
+
         // Handle OPTIONS for CORS preflight
         if (req.method === 'OPTIONS') {
             res.writeHead(200);
@@ -131,8 +134,8 @@ export class AutomationService implements vscode.Disposable {
             return;
         }
 
-        // Handle GET request for host context
-        if (req.method === 'GET' && req.url === '/host-context') {
+        // Handle GET request for host context (flexible URL matching)
+        if (req.method === 'GET' && req.url?.startsWith('/host-context')) {
             const contextResponse = await this.handleGetHostContext();
             this.sendContextResponse(res, 200, contextResponse);
             return;
@@ -186,41 +189,33 @@ export class AutomationService implements vscode.Disposable {
     }
 
     private async handleCreateRoom(serverUrl?: string, username?: string, email?: string): Promise<AutomationResponse> {
-        // Use default values if not provided
-        const user = username || 'Test1';
-        const userEmail = email || 'Test1@gmail.com';
-
-        return new Promise((resolve) => {
-            // Listen for room creation
-            const disposable = this.roomService.onDidJoinRoom(async instance => {
-                disposable.dispose();
-
-                resolve({
+        // Use the silent room creation for automation API
+        try {
+            const roomInfo = await this.roomService.createRoomSilent();
+            
+            if (roomInfo) {
+                return {
                     success: true,
-                    roomId: instance.roomId,
-                    serverUrl: instance.serverUrl
-                });
-            });
-
-            // Trigger room creation with auto auth
-            this.roomService.createRoomWithAutoAuth(serverUrl, user, userEmail).catch(async error => {
-                disposable.dispose();
-
-                resolve({
+                    roomId: roomInfo.roomId,
+                    serverUrl: roomInfo.serverUrl
+                };
+            } else {
+                return {
                     success: false,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-            });
-        });
+                    error: 'Failed to create room'
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
     }
 
     private async handleJoinRoom(roomId: string, serverUrl?: string, username?: string, email?: string): Promise<AutomationResponse> {
-        // Use default values if not provided
-        const user = username || 'Test1';
-        const userEmail = email || 'Test1@gmail.com';
-
+        // For join room, still use the regular method as it requires user interaction anyway
         return new Promise((resolve) => {
-            // Listen for room join
             const disposable = this.roomService.onDidJoinRoom(async instance => {
                 disposable.dispose();
 
@@ -231,8 +226,7 @@ export class AutomationService implements vscode.Disposable {
                 });
             });
 
-            // Trigger room join with auto auth
-            this.roomService.joinRoomWithAutoAuth(roomId, serverUrl, user, userEmail).catch(async error => {
+            this.roomService.joinRoom(roomId).catch(async error => {
                 disposable.dispose();
 
                 resolve({
@@ -245,25 +239,7 @@ export class AutomationService implements vscode.Disposable {
 
     private async handleGetHostContext(): Promise<HostContextResponse> {
         try {
-            const instance = CollaborationInstance.Current;
-            
-            // Check if there's an active collaboration session
-            if (!instance) {
-                return {
-                    success: false,
-                    error: 'No active collaboration session'
-                };
-            }
-
-            // Check if this is the host
-            if (!instance.host) {
-                return {
-                    success: false,
-                    error: 'Current session is not a host session'
-                };
-            }
-
-            // Get the active text editor
+            // Get the active text editor (no longer requires collaboration session)
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
                 return {
@@ -272,15 +248,23 @@ export class AutomationService implements vscode.Disposable {
                 };
             }
 
-            // Get the file path
+            // Get the file path - try collaboration path first, then fallback to regular path
             const uri = editor.document.uri;
-            const path = CollaborationUri.getProtocolPath(uri);
+            let path = CollaborationUri.getProtocolPath(uri);
             
             if (!path) {
-                return {
-                    success: false,
-                    error: 'Active editor is not in the collaboration workspace'
-                };
+                // Fallback to regular file path if not in collaboration workspace
+                if (uri.scheme === 'file') {
+                    // Use workspace-relative path if possible
+                    const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+                    if (workspaceFolder) {
+                        path = vscode.workspace.asRelativePath(uri, false);
+                    } else {
+                        path = uri.fsPath;
+                    }
+                } else {
+                    path = uri.path;
+                }
             }
 
             // Get cursor position (use the primary selection)

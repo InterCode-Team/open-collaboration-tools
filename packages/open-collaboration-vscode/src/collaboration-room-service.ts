@@ -101,32 +101,67 @@ export class CollaborationRoomService {
     }
 
     /**
-     * Create a room with automatic authentication (for automation API)
-     * Bypasses authentication popup
+     * Create a room silently without UI prompts (for auto-start on IDE launch)
+     * Returns room information on success, undefined on failure
      */
-    async createRoomWithAutoAuth(serverUrl: string | undefined, username: string, email: string): Promise<void> {
-        const url = serverUrl ? RoomUri.normalizeServerUri(serverUrl) : Settings.getServerUrl();
-        if (!url) {
-            throw new Error('No server URL configured');
+    async createRoomSilent(): Promise<{ roomId: string; serverUrl: string } | undefined> {
+        try {
+            let serverUrl = Settings.getServerUrl();
+            if (!serverUrl) {
+                console.error('[OCT-Error] No server URL configured for silent room creation');
+                return undefined;
+            }
+            
+            serverUrl = RoomUri.normalizeServerUri(serverUrl);
+            console.log(`[OCT-Debug] Creating silent room on server: ${serverUrl}`);
+            
+            //Check if we already have a user token
+            const existingToken = await this.secretStore.retrieveUserToken(serverUrl);
+            console.log(`[OCT-Debug] Existing user token: ${existingToken ? 'Yes' : 'No'}`);
+            
+            // Create connection with silent authentication
+            const connectionProvider = await this.connectionProvider.createConnectionSilent(serverUrl);
+            
+            console.log(`[OCT-Debug] Connection provider created, requesting room...`);
+            
+            // Create room - this will trigger authentication if needed
+            const roomClaim = await connectionProvider.createRoom({});
+            
+            console.log(`[OCT-Debug] Room created: ${roomClaim.roomId}`);
+            
+            // Store the login token for future use
+            if (roomClaim.loginToken) {
+                await this.secretStore.storeUserToken(serverUrl, roomClaim.loginToken);
+                console.log(`[OCT-Debug] User token stored/updated`);
+            }
+            
+            console.log(`[OCT-Debug] Connecting to room...`);
+            const connection = await connectionProvider.connect(roomClaim.roomToken);
+            const instance = this.instanceFactory({
+                serverUrl,
+                connection,
+                host: true,
+                roomId: roomClaim.roomId
+            });
+            
+            console.log(`[OCT-Success] Silent room created successfully: ${roomClaim.roomId}`);
+            
+            this.onDidJoinRoomEmitter.fire(instance);
+            
+            return {
+                roomId: roomClaim.roomId,
+                serverUrl
+            };
+        } catch (error) {
+            // Silently log error without showing to user
+            console.error('[OCT-Error] Failed to create room silently:', error);
+            if (error instanceof Error) {
+                console.error('[OCT-Error] Error details:', error.message, error.stack);
+            }
+            return undefined;
         }
-
-        const connectionProvider = await this.connectionProvider.createConnectionWithAutoAuth(url, username, email);
-        const roomClaim = await connectionProvider.createRoom({});
-        
-        if (roomClaim.loginToken) {
-            await this.secretStore.storeUserToken(url, roomClaim.loginToken);
-        }
-        
-        const connection = await connectionProvider.connect(roomClaim.roomToken);
-        const instance = this.instanceFactory({
-            serverUrl: url,
-            connection,
-            host: true,
-            roomId: roomClaim.roomId
-        });
-        
-        this.onDidJoinRoomEmitter.fire(instance);
     }
+
 
     async joinRoom(roomId?: string): Promise<void> {
         if (!roomId) {
@@ -208,67 +243,6 @@ export class CollaborationRoomService {
         });
     }
 
-    /**
-     * Join a room with automatic authentication (for automation API)
-     * Bypasses authentication popup
-     */
-    async joinRoomWithAutoAuth(roomId: string, serverUrl: string | undefined, username: string, email: string): Promise<void> {
-        let parsedUrl: string | undefined = serverUrl;
-        
-        try {
-            const roomUri = RoomUri.parse(roomId);
-            roomId = roomUri.roomId;
-            if (roomUri.serverUrl) {
-                parsedUrl = roomUri.serverUrl;
-            }
-        } catch {
-            throw new Error('Invalid invitation code! Invitation codes must be either a string of alphanumeric characters or a URL with a fragment.');
-        }
-
-        const url = parsedUrl ? RoomUri.normalizeServerUri(parsedUrl) : Settings.getServerUrl();
-        if (!url) {
-            throw new Error('No server URL configured');
-        }
-
-        const connectionProvider = await this.connectionProvider.createConnectionWithAutoAuth(url, username, email);
-        const roomClaim = await connectionProvider.joinRoom({ roomId });
-        
-        if (roomClaim.loginToken) {
-            await this.secretStore.storeUserToken(url, roomClaim.loginToken);
-        }
-        
-        const roomData: RoomData = {
-            serverUrl: url,
-            roomToken: roomClaim.roomToken,
-            roomId: roomClaim.roomId,
-            host: roomClaim.host
-        };
-        await this.secretStore.storeRoomData(roomData);
-        
-        const workspaceFolders = (vscode.workspace.workspaceFolders ?? []);
-        const workspace = roomClaim.workspace;
-        const newFolders = workspace.folders.map(folder => ({
-            name: folder,
-            uri: CollaborationUri.create(workspace.name, folder)
-        }));
-        
-        const uri = await storeWorkspace(newFolders, this.context.globalStorageUri);
-        if (uri) {
-            await vscode.commands.executeCommand(CodeCommands.OpenFolder, uri, {
-                forceNewWindow: false,
-                forceReuseWindow: true,
-                noRecentEntry: true
-            });
-        } else {
-            await vscode.workspace.updateWorkspaceFolders(0, workspaceFolders.length, ...newFolders);
-        }
-        
-        if (isWeb()) {
-            setTimeout(() => {
-                this.tryConnect();
-            }, 500);
-        }
-    }
 
     private showError(create: boolean, error: unknown, outerToken: vscode.CancellationToken, innerToken: vscode.CancellationToken): void {
         if (outerToken.isCancellationRequested) {

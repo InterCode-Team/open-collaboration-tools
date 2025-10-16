@@ -40,6 +40,57 @@ export async function activate(context: vscode.ExtensionContext) {
     } else {
         await closeSharedEditors();
         removeWorkspaceFolders();
+        
+        // Auto-create collaboration session for student IDEs
+        const instanceId = process.env.INSTANCE_ID;
+        const username = process.env.USERNAME;
+        
+        console.log(`[OCT-Debug] Extension activated. INSTANCE_ID=${instanceId}, USERNAME=${username}`);
+        
+        if (instanceId && username) {
+            console.log(`[OCT-Debug] Auto-start conditions met, scheduling room creation in 3 seconds`);
+            
+            // Give the IDE a moment to fully initialize
+            setTimeout(async () => {
+                try {
+                    console.log(`[OCT-Debug] Starting silent room creation...`);
+                    const roomInfo = await roomService.createRoomSilent();
+                    
+                    if (roomInfo) {
+                        console.log(`[OCT-Success] Auto-created room ${roomInfo.roomId}, notifying backend`);
+                        
+                        // Notify backend about the OCT session
+                        const backendUrl = `http://backend:8000/api/cloud-ide/${instanceId}/oct-session`;
+                        console.log(`[OCT-Debug] Notifying backend at ${backendUrl}`);
+                        
+                        const response = await fetch(backendUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                instanceId,
+                                roomId: roomInfo.roomId,
+                                serverUrl: roomInfo.serverUrl
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            console.log(`[OCT-Success] Backend notified about session ${roomInfo.roomId}`);
+                        } else {
+                            const errorText = await response.text().catch(() => 'Unable to read error');
+                            console.error(`[OCT-Error] Failed to notify backend: ${response.status} ${response.statusText} - ${errorText}`);
+                        }
+                    } else {
+                        console.error('[OCT-Error] createRoomSilent returned undefined');
+                    }
+                } catch (error) {
+                    console.error('[OCT-Error] Error in auto-create flow:', error);
+                }
+            }, 3000); // Wait 3 seconds for IDE to fully initialize
+        } else {
+            console.log(`[OCT-Debug] Auto-start skipped - not a student IDE environment`);
+        }
     }
 }
 
