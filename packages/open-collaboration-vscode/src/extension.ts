@@ -57,12 +57,18 @@ export async function activate(context: vscode.ExtensionContext) {
                 try {
                     console.log(`[OCT-Debug] Starting auto-join to room ${autoJoinRoomId}...`);
                     
-                    // Join the student's room
-                    await roomService.joinRoom(autoJoinRoomId);
+                    // Join the student's room silently (no UI prompts)
+                    const success = await roomService.joinRoomSilent(autoJoinRoomId);
                     
-                    console.log(`[OCT-Success] Successfully auto-joined room ${autoJoinRoomId}`);
+                    if (success) {
+                        console.log(`[OCT-Success] Successfully auto-joined room ${autoJoinRoomId}`);
+                        vscode.window.showInformationMessage(`Successfully joined student collaboration session!`);
+                    } else {
+                        console.error(`[OCT-Error] Failed to auto-join room ${autoJoinRoomId}`);
+                        vscode.window.showErrorMessage(`Failed to join student session automatically. Please try again manually.`);
+                    }
                 } catch (error) {
-                    console.error(`[OCT-Error] Failed to auto-join room ${autoJoinRoomId}:`, error);
+                    console.error(`[OCT-Error] Exception during auto-join to room ${autoJoinRoomId}:`, error);
                     vscode.window.showErrorMessage(`Failed to join student session automatically. Please try again manually.`);
                 }
             }, 5000); // Wait 5 seconds for IDE to fully initialize

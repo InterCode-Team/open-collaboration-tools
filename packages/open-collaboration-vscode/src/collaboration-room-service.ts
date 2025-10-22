@@ -162,6 +162,91 @@ export class CollaborationRoomService {
         }
     }
 
+    /**
+     * Join a room silently without UI prompts (for teacher auto-join)
+     * Returns success boolean
+     */
+    async joinRoomSilent(roomId: string): Promise<boolean> {
+        try {
+            let serverUrl = Settings.getServerUrl();
+            if (!serverUrl) {
+                console.error('[OCT-Error] No server URL configured for silent room join');
+                return false;
+            }
+            
+            serverUrl = RoomUri.normalizeServerUri(serverUrl);
+            console.log(`[OCT-Debug] Joining room silently: ${roomId} on server: ${serverUrl}`);
+            
+            // Check if we already have a user token
+            const existingToken = await this.secretStore.retrieveUserToken(serverUrl);
+            console.log(`[OCT-Debug] Existing user token: ${existingToken ? 'Yes' : 'No'}`);
+            
+            // Create connection with silent authentication
+            const connectionProvider = await this.connectionProvider.createConnectionSilent(serverUrl);
+            
+            console.log(`[OCT-Debug] Connection provider created, joining room ${roomId}...`);
+            
+            // Join room - this will trigger authentication if needed
+            const roomClaim = await connectionProvider.joinRoom({ roomId });
+            
+            console.log(`[OCT-Debug] Room joined successfully: ${roomClaim.roomId}`);
+            
+            // Store the login token for future use
+            if (roomClaim.loginToken) {
+                await this.secretStore.storeUserToken(serverUrl, roomClaim.loginToken);
+                console.log(`[OCT-Debug] User token stored/updated`);
+            }
+            
+            // Store room data for reconnection
+            const roomData: RoomData = {
+                serverUrl,
+                roomToken: roomClaim.roomToken,
+                roomId: roomClaim.roomId,
+                host: roomClaim.host
+            };
+            await this.secretStore.storeRoomData(roomData);
+            console.log(`[OCT-Debug] Room data stored for reconnection`);
+            
+            // Update workspace folders with collaboration files
+            const workspaceFolders = (vscode.workspace.workspaceFolders ?? []);
+            const workspace = roomClaim.workspace;
+            const newFolders = workspace.folders.map(folder => ({
+                name: folder,
+                uri: CollaborationUri.create(workspace.name, folder)
+            }));
+            
+            console.log(`[OCT-Debug] Updating workspace folders: ${newFolders.map(f => f.name).join(', ')}`);
+            
+            // Store workspace to file and open it
+            const uri = await storeWorkspace(newFolders, this.context.globalStorageUri);
+            if (uri) {
+                // We were able to store the workspace folders in a file
+                // We now attempt to load that workspace file
+                console.log(`[OCT-Debug] Opening workspace file: ${uri.toString()}`);
+                await vscode.commands.executeCommand(CodeCommands.OpenFolder, uri, {
+                    forceNewWindow: false,
+                    forceReuseWindow: true,
+                    noRecentEntry: true
+                });
+            } else {
+                // Fallback: update workspace folders directly
+                console.log(`[OCT-Debug] Updating workspace folders directly`);
+                vscode.workspace.updateWorkspaceFolders(0, workspaceFolders.length, ...newFolders);
+            }
+            
+            console.log(`[OCT-Success] Silent room join completed successfully: ${roomClaim.roomId}`);
+            
+            return true;
+        } catch (error) {
+            // Silently log error without showing to user
+            console.error('[OCT-Error] Failed to join room silently:', error);
+            if (error instanceof Error) {
+                console.error('[OCT-Error] Error details:', error.message, error.stack);
+            }
+            return false;
+        }
+    }
+
 
     async joinRoom(roomId?: string): Promise<void> {
         if (!roomId) {
