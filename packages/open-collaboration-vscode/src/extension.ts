@@ -41,14 +41,34 @@ export async function activate(context: vscode.ExtensionContext) {
         await closeSharedEditors();
         removeWorkspaceFolders();
         
-        // Auto-create collaboration session for student IDEs
+        // Check for auto-join (teacher joining student session)
+        const autoJoinRoomId = process.env.OCT_AUTO_JOIN_ROOM;
         const instanceId = process.env.INSTANCE_ID;
         const username = process.env.USERNAME;
         
-        console.log(`[OCT-Debug] Extension activated. INSTANCE_ID=${instanceId}, USERNAME=${username}`);
+        console.log(`[OCT-Debug] Extension activated. INSTANCE_ID=${instanceId}, USERNAME=${username}, AUTO_JOIN_ROOM=${autoJoinRoomId}`);
         
-        if (instanceId && username) {
-            console.log(`[OCT-Debug] Auto-start conditions met, scheduling room creation in 3 seconds`);
+        if (autoJoinRoomId && autoJoinRoomId.trim() !== '') {
+            // Teacher instance - auto-join the student's room
+            console.log(`[OCT-Debug] Teacher mode: Auto-joining room ${autoJoinRoomId} in 5 seconds`);
+            
+            // Give the IDE a moment to fully initialize
+            setTimeout(async () => {
+                try {
+                    console.log(`[OCT-Debug] Starting auto-join to room ${autoJoinRoomId}...`);
+                    
+                    // Join the student's room
+                    await roomService.joinRoom(autoJoinRoomId);
+                    
+                    console.log(`[OCT-Success] Successfully auto-joined room ${autoJoinRoomId}`);
+                } catch (error) {
+                    console.error(`[OCT-Error] Failed to auto-join room ${autoJoinRoomId}:`, error);
+                    vscode.window.showErrorMessage(`Failed to join student session automatically. Please try again manually.`);
+                }
+            }, 5000); // Wait 5 seconds for IDE to fully initialize
+        } else if (instanceId && username) {
+            // Student instance - auto-create room
+            console.log(`[OCT-Debug] Student mode: Auto-start conditions met, scheduling room creation in 3 seconds`);
             
             // Give the IDE a moment to fully initialize
             setTimeout(async () => {
@@ -89,7 +109,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }, 3000); // Wait 3 seconds for IDE to fully initialize
         } else {
-            console.log(`[OCT-Debug] Auto-start skipped - not a student IDE environment`);
+            console.log(`[OCT-Debug] Auto-start skipped - no auto-join or auto-create conditions met`);
         }
     }
 }
