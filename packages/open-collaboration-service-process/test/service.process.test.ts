@@ -10,7 +10,7 @@ import { Authentication, CreateRoomRequest, fromEncodedOCPMessage, JoinRoomReque
 import { Deferred } from 'open-collaboration-protocol';
 import { createMessageConnection, MessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node.js';
 
-const SERVER_ADDRESS = 'http://localhost:8100';
+const SERVER_ADDRESS = 'http://localhost:9100';
 class Client {
     process: ChildProcessWithoutNullStreams;
 
@@ -42,7 +42,7 @@ describe('Service Process', () => {
         server = spawn('node', [`${__dirname}/../../open-collaboration-server/bin/server`], {env: { ...process.env, 'OCT_ACTIVATE_SIMPLE_LOGIN': 'true' }});
         await new Promise<void>((resolve) => {
             server.stdout.on('data', (data) => {
-                if (data.toString().includes('listening on localhost:8100')) {
+                if (data.toString().includes('listening on localhost:9100')) {
                     resolve();
                     console.log('server started');
                 } else {

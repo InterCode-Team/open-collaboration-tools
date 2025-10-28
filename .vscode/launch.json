@@ -61,7 +61,7 @@
             "sourceMaps": true,
             "program": "${workspaceFolder}/packages/open-collaboration-service-process/lib/process.js",
             "args": [
-                "--server-address=http://localhost:8100",
+                "--server-address=http://localhost:9100",
                 "--auth-token=12312"
             ]
         },

@@ -86,7 +86,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         console.log(`[OCT-Success] Auto-created room ${roomInfo.roomId}, notifying backend`);
                         
                         // Notify backend about the OCT session
-                        const backendUrl = `http://backend:8000/api/cloud-ide/${instanceId}/oct-session`;
+                        const backendUrl = `http://backend:9000/api/cloud-ide/${instanceId}/oct-session`;
                         console.log(`[OCT-Debug] Notifying backend at ${backendUrl}`);
                         
                         const response = await fetch(backendUrl, {

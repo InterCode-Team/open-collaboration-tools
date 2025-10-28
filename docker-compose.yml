@@ -5,7 +5,7 @@ services:
       context: .
     image: oct/oct-server-dev
     ports:
-      - 8100:8100
+      - 9100:9100
     container_name: oct-server-dev
     tty: true
     environment:

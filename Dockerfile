@@ -11,6 +11,6 @@ RUN cd /home/app \
     && npm i \
     && npm run build
 
-EXPOSE 8100
+EXPOSE 9100
 WORKDIR /home/app
 CMD [ "bash", "-c", "npm run start" ]

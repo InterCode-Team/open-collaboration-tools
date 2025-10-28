@@ -68,7 +68,7 @@
       "properties": {
         "oct.serverUrl": {
           "type": "string",
-          "default": "http://oct-server:8100",
+          "default": "http://oct-server:9100",
           "description": "%oct.serverUrl%"
         },
         "oct.alwaysAskToOverrideServerUrl": {
