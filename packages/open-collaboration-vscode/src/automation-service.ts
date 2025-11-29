@@ -192,7 +192,7 @@ export class AutomationService implements vscode.Disposable {
         // Use the silent room creation for automation API
         try {
             const roomInfo = await this.roomService.createRoomSilent();
-            
+
             if (roomInfo) {
                 return {
                     success: true,
@@ -251,7 +251,7 @@ export class AutomationService implements vscode.Disposable {
             // Get the file path - try collaboration path first, then fallback to regular path
             const uri = editor.document.uri;
             let path = CollaborationUri.getProtocolPath(uri);
-            
+
             if (!path) {
                 // Fallback to regular file path if not in collaboration workspace
                 if (uri.scheme === 'file') {
@@ -277,10 +277,13 @@ export class AutomationService implements vscode.Disposable {
             const document = editor.document;
             const totalLines = document.lineCount;
 
-            // Calculate line range (±5 lines, but don't go out of bounds)
-            const contextRange = 5;
-            const startLine = Math.max(0, cursorLine - contextRange);
-            const endLine = Math.min(totalLines - 1, cursorLine + contextRange);
+            // // Calculate line range (±5 lines, but don't go out of bounds)
+            // const contextRange = 5;
+            // const startLine = Math.max(0, cursorLine - contextRange);
+            // const endLine = Math.min(totalLines - 1, cursorLine + contextRange);
+            // Line range for entire file
+            const startLine = 0;
+            const endLine = totalLines - 1;
 
             // Extract lines
             const lines: string[] = [];
